@@ -2,6 +2,7 @@
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 -- Player reference (รองรับการโหลดตัวละครใหม่)
 local player = Players.LocalPlayer
@@ -263,7 +264,7 @@ Frame.InputBegan:Connect(function(input)
 end)
 
 Frame.InputChanged:Connect(function(input)
-    if dragging and dragStart and startPos then
+    if dragging and dragStart and startPos and input.UserInputType == Enum.UserInputType.MouseMovement then
         local delta = input.Position - dragStart
         Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
