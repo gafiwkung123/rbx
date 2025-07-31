@@ -1,10 +1,10 @@
--- LocalScript (เช่นใส่ไว้ใน StarterPlayerScripts หรือใน PlayerGui เมื่อโหลด)
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Player reference (รองรับการโหลดตัวละครใหม่)
+-- Player reference
 local player = Players.LocalPlayer
 if not player then return end
 
@@ -19,130 +19,218 @@ if character then
 end
 player.CharacterAdded:Connect(updateCharacter)
 
+-- Remotes
+local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
+local shopFolder = remotesFolder:WaitForChild("Shop")
+local sellAllFunction = shopFolder:WaitForChild("SellAll")
+
+-- State
+local sandPos, waterPos = nil, nil
+local autofarmEnabled = false
+local autosellEnabled = false
+local autosellInterval = 30
+local autofarmThread, autosellThread
+
+-- Colors / Styling
+local BG_COLOR = Color3.fromRGB(30, 30, 30)
+local SECTION_BG = Color3.fromRGB(40, 40, 40)
+local BUTTON_COLOR = Color3.fromRGB(60, 60, 60)
+local LABEL_BG = Color3.fromRGB(50, 50, 50)
+
 -- GUI setup
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ProspectingGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = player:WaitForChild("PlayerGui")
 
+-- Main frame
 local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 300, 0, 440)
-Frame.Position = UDim2.new(0, 20, 0.35, 0)
-Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-Frame.BackgroundTransparency = 0.15
+Frame.Name = "MainFrame"
+Frame.Size = UDim2.new(0, 300, 0, 410)
+Frame.Position = UDim2.new(0, 20, 0.3, 0)
+Frame.BackgroundColor3 = BG_COLOR
 Frame.BorderSizePixel = 0
-Frame.Visible = true
-Frame.Parent = ScreenGui
 Frame.ClipsDescendants = true
+Frame.Parent = ScreenGui
 Frame.Rotation = 0
-Frame.AnchorPoint = Vector2.new(0, 0)
 
--- Title
+-- UI rounding (optional, can be removed if undesired)
+local function applyUICorner(inst, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 6)
+    corner.Parent = inst
+end
+applyUICorner(Frame, 10)
+
+-- Title bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 32)
+TitleBar.BackgroundTransparency = 0
+TitleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = Frame
+applyUICorner(TitleBar, 8)
+
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -10, 0, 30)
-title.Position = UDim2.new(0, 5, 0, 5)
+title.Name = "Title"
+title.Size = UDim2.new(1, -60, 1, 0)
+title.Position = UDim2.new(0, 8, 0, 0)
 title.BackgroundTransparency = 1
 title.Text = "Auto Prospecting"
 title.TextColor3 = Color3.new(1, 1, 1)
-title.TextScaled = true
 title.Font = Enum.Font.SourceSansBold
+title.TextScaled = true
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = Frame
+title.Parent = TitleBar
 
--- Separator function (optional visual divider)
-local function makeSeparator(parent, yOffset)
-    local sep = Instance.new("Frame")
-    sep.Size = UDim2.new(1, -10, 0, 1)
-    sep.Position = UDim2.new(0, 5, 0, yOffset)
-    sep.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-    sep.BorderSizePixel = 0
-    sep.Parent = parent
-    return sep
+local closeButton = Instance.new("TextButton")
+closeButton.Name = "CloseButton"
+closeButton.Size = UDim2.new(0, 28, 0, 24)
+closeButton.Position = UDim2.new(1, -34, 0, 4)
+closeButton.BackgroundColor3 = Color3.fromRGB(170, 50, 50)
+closeButton.BorderSizePixel = 0
+closeButton.Text = "X"
+closeButton.Font = Enum.Font.SourceSansBold
+closeButton.TextColor3 = Color3.new(1,1,1)
+closeButton.TextScaled = true
+closeButton.AutoButtonColor = true
+closeButton.Parent = TitleBar
+applyUICorner(closeButton, 4)
+
+-- Collapse/Open logic
+local contentVisible = true
+local contentHolder = Instance.new("Frame")
+contentHolder.Name = "Content"
+contentHolder.Size = UDim2.new(1, -10, 1, -42)
+contentHolder.Position = UDim2.new(0, 5, 0, 37)
+contentHolder.BackgroundTransparency = 1
+contentHolder.Parent = Frame
+
+-- Layout inside content
+local mainList = Instance.new("UIListLayout")
+mainList.Padding = UDim.new(0, 8)
+mainList.FillDirection = Enum.FillDirection.Vertical
+mainList.VerticalAlignment = Enum.VerticalAlignment.Top
+mainList.SortOrder = Enum.SortOrder.LayoutOrder
+mainList.Parent = contentHolder
+
+local contentPadding = Instance.new("UIPadding")
+contentPadding.PaddingTop = UDim.new(0, 4)
+contentPadding.PaddingBottom = UDim.new(0, 4)
+contentPadding.PaddingLeft = UDim.new(0, 4)
+contentPadding.PaddingRight = UDim.new(0, 4)
+contentPadding.Parent = contentHolder
+
+-- Utility: section creator
+local function createSection(titleText)
+    local section = Instance.new("Frame")
+    section.Name = titleText:gsub("%s","").."Section"
+    section.Size = UDim2.new(1, 0, 0, 0) -- automatic with layout
+    section.BackgroundColor3 = SECTION_BG
+    section.BorderSizePixel = 0
+    section.Parent = contentHolder
+    applyUICorner(section, 6)
+
+    local secPadding = Instance.new("UIPadding")
+    secPadding.PaddingTop = UDim.new(0, 8)
+    secPadding.PaddingBottom = UDim.new(0, 8)
+    secPadding.PaddingLeft = UDim.new(0, 8)
+    secPadding.PaddingRight = UDim.new(0, 8)
+    secPadding.Parent = section
+
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 6)
+    layout.Parent = section
+
+    local header = Instance.new("TextLabel")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 24)
+    header.BackgroundTransparency = 1
+    header.Font = Enum.Font.SourceSansBold
+    header.Text = titleText
+    header.TextColor3 = Color3.new(1,1,1)
+    header.TextScaled = true
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    header.Parent = section
+
+    return section
 end
 
--- Status container
-local statusContainer = Instance.new("Frame")
-statusContainer.Name = "StatusContainer"
-statusContainer.Size = UDim2.new(1, -10, 0, 120)
-statusContainer.Position = UDim2.new(0, 5, 0, 40)
-statusContainer.BackgroundTransparency = 1
-statusContainer.Parent = Frame
+-- Positions section
+local positionsSection = createSection("Saved Positions")
+-- Labels container
+local posLabels = Instance.new("Frame")
+posLabels.Name = "Labels"
+posLabels.Size = UDim2.new(1, 0, 0, 60)
+posLabels.BackgroundTransparency = 1
+posLabels.Parent = positionsSection
 
-local statusLayout = Instance.new("UIListLayout")
-statusLayout.FillDirection = Enum.FillDirection.Vertical
-statusLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-statusLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-statusLayout.SortOrder = Enum.SortOrder.LayoutOrder
-statusLayout.Padding = UDim.new(0, 6)
-statusLayout.Parent = statusContainer
+local labelsLayout = Instance.new("UIListLayout")
+labelsLayout.FillDirection = Enum.FillDirection.Vertical
+labelsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+labelsLayout.Padding = UDim.new(0, 4)
+labelsLayout.Parent = posLabels
 
--- Status labels
-local function makeStatusLabel(text, textColor)
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0, 22)
-    lbl.BackgroundTransparency = 0.5
-    lbl.TextScaled = true
-    lbl.TextColor3 = textColor or Color3.new(1, 1, 1)
-    lbl.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    lbl.BorderSizePixel = 0
-    lbl.Text = text
-    lbl.Font = Enum.Font.SourceSans
-    lbl.Parent = statusContainer
-    return lbl
-end
+-- Sand label
+local sandLabel = Instance.new("TextLabel")
+sandLabel.Name = "SandLabel"
+sandLabel.Size = UDim2.new(1, 0, 0, 24)
+sandLabel.BackgroundColor3 = LABEL_BG
+sandLabel.BorderSizePixel = 0
+sandLabel.Text = "Sand: [Not set]"
+sandLabel.TextScaled = true
+sandLabel.TextColor3 = Color3.new(1,1,1)
+sandLabel.Font = Enum.Font.SourceSans
+sandLabel.Parent = posLabels
+applyUICorner(sandLabel, 4)
 
-local sandLabel = makeStatusLabel("Sand: [Not set]", Color3.new(1,1,1))
-local waterLabel = makeStatusLabel("Water: [Not set]", Color3.new(1,1,1))
-local autofarmStatus = makeStatusLabel("AutoFarm: OFF", Color3.fromRGB(0, 1, 0))
-local autosellStatus = makeStatusLabel("AutoSell: OFF", Color3.fromRGB(0, 200/255, 1))
+-- Water label
+local waterLabel = Instance.new("TextLabel")
+waterLabel.Name = "WaterLabel"
+waterLabel.Size = UDim2.new(1, 0, 0, 24)
+waterLabel.BackgroundColor3 = LABEL_BG
+waterLabel.BorderSizePixel = 0
+waterLabel.Text = "Water: [Not set]"
+waterLabel.TextScaled = true
+waterLabel.TextColor3 = Color3.new(1,1,1)
+waterLabel.Font = Enum.Font.SourceSans
+waterLabel.Parent = posLabels
+applyUICorner(waterLabel, 4)
 
--- Controls container
-local controlsContainer = Instance.new("Frame")
-controlsContainer.Name = "ControlsContainer"
-controlsContainer.Size = UDim2.new(1, -10, 0, 220)
-controlsContainer.Position = UDim2.new(0, 5, 0, 170)
-controlsContainer.BackgroundTransparency = 1
-controlsContainer.Parent = Frame
+-- Save buttons row
+local saveButtonsRow = Instance.new("Frame")
+saveButtonsRow.Name = "SaveButtonsRow"
+saveButtonsRow.Size = UDim2.new(1, 0, 0, 36)
+saveButtonsRow.BackgroundTransparency = 1
+saveButtonsRow.Parent = positionsSection
 
-local controlsLayout = Instance.new("UIListLayout")
-controlsLayout.FillDirection = Enum.FillDirection.Vertical
-controlsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-controlsLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-controlsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-controlsLayout.Padding = UDim.new(0, 10)
-controlsLayout.Parent = controlsContainer
+local saveLayout = Instance.new("UIListLayout")
+saveLayout.FillDirection = Enum.FillDirection.Horizontal
+saveLayout.SortOrder = Enum.SortOrder.LayoutOrder
+saveLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+saveLayout.Padding = UDim.new(0, 8)
+saveLayout.Parent = saveButtonsRow
 
--- Button factory (ปรับให้รับ parent)
-local function createButton(parent, name, text, sizeX, callback)
+local function makeSmallButton(name, text, callback)
     local btn = Instance.new("TextButton")
     btn.Name = name
-    btn.Size = UDim2.new(0, sizeX or 140, 0, 32)
-    btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    btn.Size = UDim2.new(0.5, -4, 1, 0)
+    btn.BackgroundColor3 = BUTTON_COLOR
     btn.BorderSizePixel = 0
     btn.Text = text
-    btn.TextColor3 = Color3.new(1, 1, 1)
     btn.TextScaled = true
-    btn.AutoButtonColor = true
     btn.Font = Enum.Font.SourceSansBold
-    btn.Parent = parent
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.AutoButtonColor = true
+    btn.Parent = saveButtonsRow
+    applyUICorner(btn, 4)
     btn.MouseButton1Click:Connect(callback)
     return btn
 end
 
--- Save positions row (horizontal)
-local saveRow = Instance.new("Frame")
-saveRow.Size = UDim2.new(1, 0, 0, 40)
-saveRow.BackgroundTransparency = 1
-saveRow.Parent = controlsContainer
-
-local saveLayout = Instance.new("UIListLayout")
-saveLayout.FillDirection = Enum.FillDirection.Horizontal
-saveLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-saveLayout.SortOrder = Enum.SortOrder.LayoutOrder
-saveLayout.Padding = UDim.new(0, 8)
-saveLayout.Parent = saveRow
-
-local SaveSandBtn = createButton(saveRow, "SaveSandBtn", "Save Sand", 135, function()
+makeSmallButton("SaveSandBtn", "Save Sand", 0, function()
     if rootPart then
         sandPos = rootPart.Position
         sandLabel.Text = string.format("Sand: (%.1f, %.1f, %.1f)", sandPos.X, sandPos.Y, sandPos.Z)
@@ -151,7 +239,7 @@ local SaveSandBtn = createButton(saveRow, "SaveSandBtn", "Save Sand", 135, funct
     end
 end)
 
-local SaveWaterBtn = createButton(saveRow, "SaveWaterBtn", "Save Water", 135, function()
+makeSmallButton("SaveWaterBtn", "Save Water", 0, function()
     if rootPart then
         waterPos = rootPart.Position
         waterLabel.Text = string.format("Water: (%.1f, %.1f, %.1f)", waterPos.X, waterPos.Y, waterPos.Z)
@@ -160,20 +248,124 @@ local SaveWaterBtn = createButton(saveRow, "SaveWaterBtn", "Save Water", 135, fu
     end
 end)
 
--- AutoFarm toggle row
-local farmRow = Instance.new("Frame")
-farmRow.Size = UDim2.new(1, 0, 0, 40)
-farmRow.BackgroundTransparency = 1
-farmRow.Parent = controlsContainer
+-- AutoFarm section
+local autofarmSection = createSection("AutoFarm")
+local autofarmStatus = Instance.new("TextLabel")
+autofarmStatus.Name = "AutoFarmStatus"
+autofarmStatus.Size = UDim2.new(1, 0, 0, 24)
+autofarmStatus.BackgroundColor3 = Color3.fromRGB(50,50,50)
+autofarmStatus.BorderSizePixel = 0
+autofarmStatus.Text = "AutoFarm: OFF"
+autofarmStatus.TextScaled = true
+autofarmStatus.Font = Enum.Font.SourceSansSemibold
+autofarmStatus.TextColor3 = Color3.fromRGB(255,100,100)
+autofarmStatus.Parent = autofarmSection
+applyUICorner(autofarmStatus, 4)
 
-local farmLayout = Instance.new("UIListLayout")
-farmLayout.FillDirection = Enum.FillDirection.Horizontal
-farmLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-farmLayout.SortOrder = Enum.SortOrder.LayoutOrder
-farmLayout.Padding = UDim.new(0, 8)
-farmLayout.Parent = farmRow
+local farmButton = Instance.new("TextButton")
+farmButton.Name = "FarmButton"
+farmButton.Size = UDim2.new(1, 0, 0, 34)
+farmButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+farmButton.BorderSizePixel = 0
+farmButton.Text = "Toggle AutoFarm"
+farmButton.TextScaled = true
+farmButton.Font = Enum.Font.SourceSansBold
+farmButton.TextColor3 = Color3.new(1,1,1)
+farmButton.AutoButtonColor = true
+farmButton.Parent = autofarmSection
+applyUICorner(farmButton, 6)
 
-local FarmButton = createButton(farmRow, "FarmButton", "Toggle AutoFarm", 280, function()
+-- AutoSell section
+local autosellSection = createSection("AutoSell")
+local autosellStatus = Instance.new("TextLabel")
+autosellStatus.Name = "AutoSellStatus"
+autosellStatus.Size = UDim2.new(1, 0, 0, 24)
+autosellStatus.BackgroundColor3 = Color3.fromRGB(50,50,50)
+autosellStatus.BorderSizePixel = 0
+autosellStatus.Text = "AutoSell: OFF"
+autosellStatus.TextScaled = true
+autosellStatus.Font = Enum.Font.SourceSansSemibold
+autosellStatus.TextColor3 = Color3.fromRGB(100,100,100)
+autosellStatus.Parent = autosellSection
+applyUICorner(autosellStatus, 4)
+
+-- Interval + toggle row
+local autosellControls = Instance.new("Frame")
+autosellControls.Name = "AutoSellControls"
+autosellControls.Size = UDim2.new(1, 0, 0, 40)
+autosellControls.BackgroundTransparency = 1
+autosellControls.Parent = autosellSection
+
+local sellLayout = Instance.new("UIListLayout")
+sellLayout.FillDirection = Enum.FillDirection.Horizontal
+sellLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sellLayout.Padding = UDim.new(0, 10)
+sellLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+sellLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+sellLayout.Parent = autosellControls
+
+-- Interval label
+local intervalLabel = Instance.new("TextLabel")
+intervalLabel.Name = "IntervalLabel"
+intervalLabel.Size = UDim2.new(0, 110, 1, 0)
+intervalLabel.BackgroundTransparency = 0
+intervalLabel.BackgroundColor3 = LABEL_BG
+intervalLabel.BorderSizePixel = 0
+intervalLabel.Text = "Interval (s):"
+intervalLabel.TextScaled = true
+intervalLabel.Font = Enum.Font.SourceSans
+intervalLabel.TextColor3 = Color3.new(1,1,1)
+intervalLabel.Parent = autosellControls
+applyUICorner(intervalLabel, 4)
+
+-- Interval box
+local intervalBox = Instance.new("TextBox")
+intervalBox.Name = "IntervalBox"
+intervalBox.Size = UDim2.new(0, 70, 1, 0)
+intervalBox.BackgroundColor3 = Color3.fromRGB(60,60,60)
+intervalBox.BorderSizePixel = 0
+intervalBox.Text = tostring(autosellInterval)
+intervalBox.TextScaled = true
+intervalBox.Font = Enum.Font.SourceSans
+intervalBox.TextColor3 = Color3.new(1,1,1)
+intervalBox.ClearTextOnFocus = false
+intervalBox.Parent = autosellControls
+applyUICorner(intervalBox, 4)
+
+-- Sell toggle button
+local sellToggleBtn = Instance.new("TextButton")
+sellToggleBtn.Name = "SellToggleBtn"
+sellToggleBtn.Size = UDim2.new(0, 140, 1, 0)
+sellToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+sellToggleBtn.BorderSizePixel = 0
+sellToggleBtn.Text = "Toggle AutoSell"
+sellToggleBtn.TextScaled = true
+sellToggleBtn.Font = Enum.Font.SourceSansBold
+sellToggleBtn.TextColor3 = Color3.new(1,1,1)
+sellToggleBtn.AutoButtonColor = true
+sellToggleBtn.Parent = autosellControls
+applyUICorner(sellToggleBtn, 6)
+
+-- Helpers
+local function teleportTo(position)
+    if not position then return end
+    if rootPart then
+        rootPart.CFrame = CFrame.new(position)
+    end
+end
+
+local function setAutoFarmStatus(enabled)
+    autofarmEnabled = enabled
+    if enabled then
+        autofarmStatus.Text = "AutoFarm: ON"
+        autofarmStatus.TextColor3 = Color3.fromRGB(0, 255, 100)
+    else
+        autofarmStatus.Text = "AutoFarm: OFF"
+        autofarmStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
+    end
+end
+
+local function toggleAutoFarm()
     if autofarmEnabled then
         setAutoFarmStatus(false)
         return
@@ -185,7 +377,6 @@ local FarmButton = createButton(farmRow, "FarmButton", "Toggle AutoFarm", 280, f
     setAutoFarmStatus(true)
     autofarmThread = task.spawn(function()
         while autofarmEnabled do
-            -- Teleport to sand
             if sandPos then
                 teleportTo(sandPos)
                 task.wait(1)
@@ -200,7 +391,6 @@ local FarmButton = createButton(farmRow, "FarmButton", "Toggle AutoFarm", 280, f
 
             task.wait(2)
 
-            -- Teleport ไป water หลายรอบ (เลียนแบบเดิม)
             if waterPos then
                 teleportTo(waterPos)
                 task.wait(1)
@@ -215,22 +405,20 @@ local FarmButton = createButton(farmRow, "FarmButton", "Toggle AutoFarm", 280, f
         end
         setAutoFarmStatus(false)
     end)
-end)
+end
 
--- AutoSell row (Sell button + interval)
-local autosellRow = Instance.new("Frame")
-autosellRow.Size = UDim2.new(1, 0, 0, 40)
-autosellRow.BackgroundTransparency = 1
-autosellRow.Parent = controlsContainer
+local function setAutoSellStatus(enabled)
+    autosellEnabled = enabled
+    if enabled then
+        autosellStatus.Text = "AutoSell: ON ("..tostring(autosellInterval).."s)"
+        autosellStatus.TextColor3 = Color3.fromRGB(0, 200, 255)
+    else
+        autosellStatus.Text = "AutoSell: OFF"
+        autosellStatus.TextColor3 = Color3.fromRGB(100, 100, 100)
+    end
+end
 
-local autosellLayout = Instance.new("UIListLayout")
-autosellLayout.FillDirection = Enum.FillDirection.Horizontal
-autosellLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-autosellLayout.SortOrder = Enum.SortOrder.LayoutOrder
-autosellLayout.Padding = UDim.new(0, 8)
-autosellLayout.Parent = autosellRow
-
-local SellButton = createButton(autosellRow, "SellButton", "Toggle AutoSell", 160, function()
+local function toggleAutoSell()
     if autosellEnabled then
         setAutoSellStatus(false)
         return
@@ -248,28 +436,11 @@ local SellButton = createButton(autosellRow, "SellButton", "Toggle AutoSell", 16
         end
         setAutoSellStatus(false)
     end)
-end)
+end
 
--- Interval input box
-local intervalBox = Instance.new("TextBox")
-intervalBox.Name = "IntervalBox"
-intervalBox.Size = UDim2.new(0, 100, 0, 32)
-intervalBox.Text = tostring(30)
-intervalBox.TextColor3 = Color3.new(1, 1, 1)
-intervalBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-intervalBox.BorderSizePixel = 0
-intervalBox.TextScaled = true
-intervalBox.Font = Enum.Font.SourceSans
-intervalBox.Parent = autosellRow
-
-local intervalLabel = Instance.new("TextLabel")
-intervalLabel.Size = UDim2.new(0, 60, 0, 32)
-intervalLabel.BackgroundTransparency = 1
-intervalLabel.Text = "Interval"
-intervalLabel.TextColor3 = Color3.new(1, 1, 1)
-intervalLabel.TextScaled = true
-intervalLabel.Font = Enum.Font.SourceSans
-intervalLabel.Parent = autosellRow
+-- Connections
+farmButton.MouseButton1Click:Connect(toggleAutoFarm)
+sellToggleBtn.MouseButton1Click:Connect(toggleAutoSell)
 
 intervalBox.FocusLost:Connect(function(enter)
     local val = tonumber(intervalBox.Text)
@@ -283,86 +454,40 @@ intervalBox.FocusLost:Connect(function(enter)
     end
 end)
 
--- AutoFarm / AutoSell status helpers
-local autofarmEnabled = false
-local autofarmThread
-local autosellEnabled = false
-local autosellThread
-local autosellInterval = 30 -- ค่าเริ่มต้น 30 วินาที
-
-local function setAutoFarmStatus(enabled)
-    autofarmEnabled = enabled
-    if enabled then
-        autofarmStatus.Text = "AutoFarm: ON"
-        autofarmStatus.TextColor3 = Color3.fromRGB(0, 255, 100)
+-- Close/collapse behavior
+closeButton.MouseButton1Click:Connect(function()
+    contentVisible = not contentVisible
+    contentHolder.Visible = contentVisible
+    if contentVisible then
+        closeButton.Text = "X"
+        Frame.Size = UDim2.new(0, 300, 0, 410)
     else
-        autofarmStatus.Text = "AutoFarm: OFF"
-        autofarmStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
+        closeButton.Text = "▶"
+        Frame.Size = UDim2.new(0, 140, 0, 40)
     end
-end
+end)
 
-local function setAutoSellStatus(enabled)
-    autosellEnabled = enabled
-    if enabled then
-        autosellStatus.Text = "AutoSell: ON ("..tostring(autosellInterval).."s)"
-        autosellStatus.TextColor3 = Color3.fromRGB(0, 200, 255)
-    else
-        autosellStatus.Text = "AutoSell: OFF"
-        autosellStatus.TextColor3 = Color3.fromRGB(100, 100, 100)
+-- Dragging via title bar
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = Frame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
     end
-end
+end)
 
--- AutoSell logic dependencies (ต้องอยู่ข้างล่างเพราะใช้ฟังก์ชันข้างบน)
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
-local shopFolder = remotesFolder:WaitForChild("Shop")
-local sellAllFunction = shopFolder:WaitForChild("SellAll")
-
--- Saved positions
-local sandPos = nil
-local waterPos = nil
-
--- Helper: teleport safely
-local function teleportTo(position)
-    if not position then return end
-    if rootPart then
-        rootPart.CFrame = CFrame.new(position)
+TitleBar.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement and dragStart and startPos then
+        local delta = input.Position - dragStart
+        Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
-end
-
--- Close / Open UI
-local uiVisible = true
-local openButton = Instance.new("TextButton")
-openButton.Name = "OpenButton"
-openButton.Size = UDim2.new(0, 100, 0, 30)
-openButton.Position = UDim2.new(0, 20, 1, -40)
-openButton.Text = "Open UI"
-openButton.TextColor3 = Color3.new(1, 1, 1)
-openButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
-openButton.BorderSizePixel = 0
-openButton.Parent = ScreenGui
-openButton.Visible = false
-openButton.AutoButtonColor = true
-openButton.Font = Enum.Font.SourceSansBold
-
-local function toggleUI()
-    uiVisible = not uiVisible
-    Frame.Visible = uiVisible
-    openButton.Visible = not uiVisible
-end
-
--- Close button (X)
-local closeButton = Instance.new("TextButton")
-closeButton.Name = "CloseButton"
-closeButton.Size = UDim2.new(0, 30, 0, 30)
-closeButton.Position = UDim2.new(1, -35, 0, 5)
-closeButton.AnchorPoint = Vector2.new(0, 0)
-closeButton.Text = "X"
-closeButton.TextColor3 = Color3.new(1, 1, 1)
-closeButton.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
-closeButton.BorderSizePixel = 0
-closeButton.Parent = Frame
-closeButton.AutoButtonColor = true
-closeButton.Font = Enum.Font.SourceSansBold
-closeButton.MouseButton1Click:Connect(toggleUI)
-openButton.MouseButton1Click:Connect(toggleUI)
+end)
