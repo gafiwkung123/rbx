@@ -1,4 +1,4 @@
--- Services
+-- Services2
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -31,7 +31,7 @@ local autosellEnabled = false
 local autosellInterval = 30
 local autofarmThread, autosellThread
 
--- Colors / Styling
+-- Styling
 local BG_COLOR = Color3.fromRGB(30, 30, 30)
 local SECTION_BG = Color3.fromRGB(40, 40, 40)
 local BUTTON_COLOR = Color3.fromRGB(60, 60, 60)
@@ -46,35 +46,34 @@ ScreenGui.Parent = player:WaitForChild("PlayerGui")
 -- Main frame
 local Frame = Instance.new("Frame")
 Frame.Name = "MainFrame"
-Frame.Size = UDim2.new(0, 300, 0, 410)
-Frame.Position = UDim2.new(0, 20, 0.3, 0)
+Frame.Size = UDim2.new(0, 320, 0, 450)
+Frame.Position = UDim2.new(0, 20, 0.25, 0)
 Frame.BackgroundColor3 = BG_COLOR
 Frame.BorderSizePixel = 0
 Frame.ClipsDescendants = true
 Frame.Parent = ScreenGui
 Frame.Rotation = 0
 
--- UI rounding (optional, can be removed if undesired)
+-- Rounded corners helper
 local function applyUICorner(inst, radius)
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, radius or 6)
     corner.Parent = inst
 end
-applyUICorner(Frame, 10)
+applyUICorner(Frame, 12)
 
 -- Title bar
 local TitleBar = Instance.new("Frame")
 TitleBar.Name = "TitleBar"
 TitleBar.Size = UDim2.new(1, 0, 0, 32)
-TitleBar.BackgroundTransparency = 0
 TitleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 TitleBar.BorderSizePixel = 0
 TitleBar.Parent = Frame
-applyUICorner(TitleBar, 8)
+applyUICorner(TitleBar, 10)
 
 local title = Instance.new("TextLabel")
 title.Name = "Title"
-title.Size = UDim2.new(1, -60, 1, 0)
+title.Size = UDim2.new(1, -70, 1, 0)
 title.Position = UDim2.new(0, 8, 0, 0)
 title.BackgroundTransparency = 1
 title.Text = "Auto Prospecting"
@@ -87,7 +86,7 @@ title.Parent = TitleBar
 local closeButton = Instance.new("TextButton")
 closeButton.Name = "CloseButton"
 closeButton.Size = UDim2.new(0, 28, 0, 24)
-closeButton.Position = UDim2.new(1, -34, 0, 4)
+closeButton.Position = UDim2.new(1, -36, 0, 4)
 closeButton.BackgroundColor3 = Color3.fromRGB(170, 50, 50)
 closeButton.BorderSizePixel = 0
 closeButton.Text = "X"
@@ -98,39 +97,42 @@ closeButton.AutoButtonColor = true
 closeButton.Parent = TitleBar
 applyUICorner(closeButton, 4)
 
--- Collapse/Open logic
-local contentVisible = true
-local contentHolder = Instance.new("Frame")
+-- Content as scrolling
+local contentHolder = Instance.new("ScrollingFrame")
 contentHolder.Name = "Content"
-contentHolder.Size = UDim2.new(1, -10, 1, -42)
+contentHolder.Size = UDim2.new(1, -10, 1, -48)
 contentHolder.Position = UDim2.new(0, 5, 0, 37)
 contentHolder.BackgroundTransparency = 1
+contentHolder.BorderSizePixel = 0
+contentHolder.CanvasSize = UDim2.new(0, 0, 0, 0)
+contentHolder.AutomaticCanvasSize = Enum.AutomaticSize.Y
+contentHolder.ScrollBarThickness = 6
 contentHolder.Parent = Frame
 
--- Layout inside content
+local contentPadding = Instance.new("UIPadding")
+contentPadding.PaddingTop = UDim.new(0, 6)
+contentPadding.PaddingBottom = UDim.new(0, 6)
+contentPadding.PaddingLeft = UDim.new(0, 6)
+contentPadding.PaddingRight = UDim.new(0, 6)
+contentPadding.Parent = contentHolder
+
 local mainList = Instance.new("UIListLayout")
-mainList.Padding = UDim.new(0, 8)
+mainList.Padding = UDim.new(0, 10)
 mainList.FillDirection = Enum.FillDirection.Vertical
 mainList.VerticalAlignment = Enum.VerticalAlignment.Top
 mainList.SortOrder = Enum.SortOrder.LayoutOrder
 mainList.Parent = contentHolder
 
-local contentPadding = Instance.new("UIPadding")
-contentPadding.PaddingTop = UDim.new(0, 4)
-contentPadding.PaddingBottom = UDim.new(0, 4)
-contentPadding.PaddingLeft = UDim.new(0, 4)
-contentPadding.PaddingRight = UDim.new(0, 4)
-contentPadding.Parent = contentHolder
-
--- Utility: section creator
+-- Section creator
 local function createSection(titleText)
     local section = Instance.new("Frame")
     section.Name = titleText:gsub("%s","").."Section"
-    section.Size = UDim2.new(1, 0, 0, 0) -- automatic with layout
     section.BackgroundColor3 = SECTION_BG
     section.BorderSizePixel = 0
+    section.AutomaticSize = Enum.AutomaticSize.Y
+    section.Size = UDim2.new(1, 0, 0, 0)
     section.Parent = contentHolder
-    applyUICorner(section, 6)
+    applyUICorner(section, 8)
 
     local secPadding = Instance.new("UIPadding")
     secPadding.PaddingTop = UDim.new(0, 8)
@@ -158,9 +160,9 @@ local function createSection(titleText)
     return section
 end
 
--- Positions section
+-- Saved Positions Section
 local positionsSection = createSection("Saved Positions")
--- Labels container
+
 local posLabels = Instance.new("Frame")
 posLabels.Name = "Labels"
 posLabels.Size = UDim2.new(1, 0, 0, 60)
@@ -173,7 +175,6 @@ labelsLayout.SortOrder = Enum.SortOrder.LayoutOrder
 labelsLayout.Padding = UDim.new(0, 4)
 labelsLayout.Parent = posLabels
 
--- Sand label
 local sandLabel = Instance.new("TextLabel")
 sandLabel.Name = "SandLabel"
 sandLabel.Size = UDim2.new(1, 0, 0, 24)
@@ -181,12 +182,11 @@ sandLabel.BackgroundColor3 = LABEL_BG
 sandLabel.BorderSizePixel = 0
 sandLabel.Text = "Sand: [Not set]"
 sandLabel.TextScaled = true
-sandLabel.TextColor3 = Color3.new(1,1,1)
 sandLabel.Font = Enum.Font.SourceSans
+sandLabel.TextColor3 = Color3.new(1,1,1)
 sandLabel.Parent = posLabels
 applyUICorner(sandLabel, 4)
 
--- Water label
 local waterLabel = Instance.new("TextLabel")
 waterLabel.Name = "WaterLabel"
 waterLabel.Size = UDim2.new(1, 0, 0, 24)
@@ -194,8 +194,8 @@ waterLabel.BackgroundColor3 = LABEL_BG
 waterLabel.BorderSizePixel = 0
 waterLabel.Text = "Water: [Not set]"
 waterLabel.TextScaled = true
-waterLabel.TextColor3 = Color3.new(1,1,1)
 waterLabel.Font = Enum.Font.SourceSans
+waterLabel.TextColor3 = Color3.new(1,1,1)
 waterLabel.Parent = posLabels
 applyUICorner(waterLabel, 4)
 
@@ -230,7 +230,7 @@ local function makeSmallButton(name, text, callback)
     return btn
 end
 
-makeSmallButton("SaveSandBtn", "Save Sand", 0, function()
+makeSmallButton("SaveSandBtn", "Save Sand", function()
     if rootPart then
         sandPos = rootPart.Position
         sandLabel.Text = string.format("Sand: (%.1f, %.1f, %.1f)", sandPos.X, sandPos.Y, sandPos.Z)
@@ -239,7 +239,7 @@ makeSmallButton("SaveSandBtn", "Save Sand", 0, function()
     end
 end)
 
-makeSmallButton("SaveWaterBtn", "Save Water", 0, function()
+makeSmallButton("SaveWaterBtn", "Save Water", function()
     if rootPart then
         waterPos = rootPart.Position
         waterLabel.Text = string.format("Water: (%.1f, %.1f, %.1f)", waterPos.X, waterPos.Y, waterPos.Z)
@@ -248,23 +248,24 @@ makeSmallButton("SaveWaterBtn", "Save Water", 0, function()
     end
 end)
 
--- AutoFarm section
+-- AutoFarm Section
 local autofarmSection = createSection("AutoFarm")
+
 local autofarmStatus = Instance.new("TextLabel")
 autofarmStatus.Name = "AutoFarmStatus"
 autofarmStatus.Size = UDim2.new(1, 0, 0, 24)
-autofarmStatus.BackgroundColor3 = Color3.fromRGB(50,50,50)
+autofarmStatus.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 autofarmStatus.BorderSizePixel = 0
 autofarmStatus.Text = "AutoFarm: OFF"
 autofarmStatus.TextScaled = true
 autofarmStatus.Font = Enum.Font.SourceSansSemibold
-autofarmStatus.TextColor3 = Color3.fromRGB(255,100,100)
+autofarmStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
 autofarmStatus.Parent = autofarmSection
 applyUICorner(autofarmStatus, 4)
 
 local farmButton = Instance.new("TextButton")
 farmButton.Name = "FarmButton"
-farmButton.Size = UDim2.new(1, 0, 0, 34)
+farmButton.Size = UDim2.new(1, 0, 0, 36)
 farmButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
 farmButton.BorderSizePixel = 0
 farmButton.Text = "Toggle AutoFarm"
@@ -275,40 +276,39 @@ farmButton.AutoButtonColor = true
 farmButton.Parent = autofarmSection
 applyUICorner(farmButton, 6)
 
--- AutoSell section
+-- AutoSell Section
 local autosellSection = createSection("AutoSell")
-local autosellStatus = Instance.new("TextLabel")
-autosellStatus.Name = "AutoSellStatus"
-autosellStatus.Size = UDim2.new(1, 0, 0, 24)
-autosellStatus.BackgroundColor3 = Color3.fromRGB(50,50,50)
-autosellStatus.BorderSizePixel = 0
-autosellStatus.Text = "AutoSell: OFF"
-autosellStatus.TextScaled = true
-autosellStatus.Font = Enum.Font.SourceSansSemibold
-autosellStatus.TextColor3 = Color3.fromRGB(100,100,100)
-autosellStatus.Parent = autosellSection
-applyUICorner(autosellStatus, 4)
 
--- Interval + toggle row
+local autosellStatusLabel = Instance.new("TextLabel")
+autosellStatusLabel.Name = "AutoSellStatus"
+autosellStatusLabel.Size = UDim2.new(1, 0, 0, 24)
+autosellStatusLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+autosellStatusLabel.BorderSizePixel = 0
+autosellStatusLabel.Text = "AutoSell: OFF"
+autosellStatusLabel.TextScaled = true
+autosellStatusLabel.Font = Enum.Font.SourceSansSemibold
+autosellStatusLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
+autosellStatusLabel.Parent = autosellSection
+applyUICorner(autosellStatusLabel, 4)
+
+-- Controls row for AutoSell
 local autosellControls = Instance.new("Frame")
 autosellControls.Name = "AutoSellControls"
-autosellControls.Size = UDim2.new(1, 0, 0, 40)
+autosellControls.Size = UDim2.new(1, 0, 0, 44)
 autosellControls.BackgroundTransparency = 1
 autosellControls.Parent = autosellSection
 
 local sellLayout = Instance.new("UIListLayout")
 sellLayout.FillDirection = Enum.FillDirection.Horizontal
 sellLayout.SortOrder = Enum.SortOrder.LayoutOrder
-sellLayout.Padding = UDim.new(0, 10)
+sellLayout.Padding = UDim.new(0, 8)
 sellLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
 sellLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 sellLayout.Parent = autosellControls
 
--- Interval label
 local intervalLabel = Instance.new("TextLabel")
 intervalLabel.Name = "IntervalLabel"
-intervalLabel.Size = UDim2.new(0, 110, 1, 0)
-intervalLabel.BackgroundTransparency = 0
+intervalLabel.Size = UDim2.new(0, 80, 1, 0)
 intervalLabel.BackgroundColor3 = LABEL_BG
 intervalLabel.BorderSizePixel = 0
 intervalLabel.Text = "Interval (s):"
@@ -318,11 +318,10 @@ intervalLabel.TextColor3 = Color3.new(1,1,1)
 intervalLabel.Parent = autosellControls
 applyUICorner(intervalLabel, 4)
 
--- Interval box
 local intervalBox = Instance.new("TextBox")
 intervalBox.Name = "IntervalBox"
-intervalBox.Size = UDim2.new(0, 70, 1, 0)
-intervalBox.BackgroundColor3 = Color3.fromRGB(60,60,60)
+intervalBox.Size = UDim2.new(0, 60, 1, 0)
+intervalBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 intervalBox.BorderSizePixel = 0
 intervalBox.Text = tostring(autosellInterval)
 intervalBox.TextScaled = true
@@ -332,10 +331,9 @@ intervalBox.ClearTextOnFocus = false
 intervalBox.Parent = autosellControls
 applyUICorner(intervalBox, 4)
 
--- Sell toggle button
 local sellToggleBtn = Instance.new("TextButton")
 sellToggleBtn.Name = "SellToggleBtn"
-sellToggleBtn.Size = UDim2.new(0, 140, 1, 0)
+sellToggleBtn.Size = UDim2.new(0, 160, 1, 0)
 sellToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
 sellToggleBtn.BorderSizePixel = 0
 sellToggleBtn.Text = "Toggle AutoSell"
@@ -346,7 +344,7 @@ sellToggleBtn.AutoButtonColor = true
 sellToggleBtn.Parent = autosellControls
 applyUICorner(sellToggleBtn, 6)
 
--- Helpers
+-- Helper functions
 local function teleportTo(position)
     if not position then return end
     if rootPart then
@@ -410,11 +408,11 @@ end
 local function setAutoSellStatus(enabled)
     autosellEnabled = enabled
     if enabled then
-        autosellStatus.Text = "AutoSell: ON ("..tostring(autosellInterval).."s)"
-        autosellStatus.TextColor3 = Color3.fromRGB(0, 200, 255)
+        autosellStatusLabel.Text = "AutoSell: ON ("..tostring(autosellInterval).."s)"
+        autosellStatusLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
     else
-        autosellStatus.Text = "AutoSell: OFF"
-        autosellStatus.TextColor3 = Color3.fromRGB(100, 100, 100)
+        autosellStatusLabel.Text = "AutoSell: OFF"
+        autosellStatusLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
     end
 end
 
@@ -447,20 +445,21 @@ intervalBox.FocusLost:Connect(function(enter)
     if val and val >= 5 then
         autosellInterval = math.floor(val)
         if autosellEnabled then
-            autosellStatus.Text = "AutoSell: ON ("..tostring(autosellInterval).."s)"
+            autosellStatusLabel.Text = "AutoSell: ON ("..tostring(autosellInterval).."s)"
         end
     else
         intervalBox.Text = tostring(autosellInterval)
     end
 end)
 
--- Close/collapse behavior
+-- Collapse / expand
+local contentVisible = true
 closeButton.MouseButton1Click:Connect(function()
     contentVisible = not contentVisible
     contentHolder.Visible = contentVisible
     if contentVisible then
         closeButton.Text = "X"
-        Frame.Size = UDim2.new(0, 300, 0, 410)
+        Frame.Size = UDim2.new(0, 320, 0, 450)
     else
         closeButton.Text = "▶"
         Frame.Size = UDim2.new(0, 140, 0, 40)
