@@ -1,10 +1,11 @@
--- LocalScript (เช่นใส่ไว้ใน StarterPlayerScripts หรือใน PlayerGui เมื่อโหลด)
+-- LocalScript (StarterPlayerScripts หรือ PlayerGui)
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Player reference (รองรับการโหลดตัวละครใหม่)
+-- Player reference
 local player = Players.LocalPlayer
 if not player then return end
 
@@ -14,9 +15,7 @@ local function updateCharacter(char)
     character = char
     rootPart = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
 end
-if character then
-    updateCharacter(character)
-end
+if character then updateCharacter(character) end
 player.CharacterAdded:Connect(updateCharacter)
 
 -- GUI setup
@@ -34,9 +33,22 @@ Frame.BorderSizePixel = 0
 Frame.Visible = true
 Frame.Parent = ScreenGui
 Frame.ClipsDescendants = true
-Frame.Rotation = 0
 
--- Title
+local function createLabel(name, text, posY, color)
+    local lbl = Instance.new("TextLabel")
+    lbl.Name = name
+    lbl.Size = UDim2.new(0, 240, 0, 24)
+    lbl.Position = UDim2.new(0, 10, 0, posY)
+    lbl.BackgroundTransparency = 0.5
+    lbl.TextScaled = true
+    lbl.TextColor3 = color or Color3.new(1, 1, 1)
+    lbl.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    lbl.BorderSizePixel = 0
+    lbl.Text = text
+    lbl.Parent = Frame
+    return lbl
+end
+
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -10, 0, 28)
 title.Position = UDim2.new(0, 5, 0, 5)
@@ -48,71 +60,32 @@ title.Font = Enum.Font.SourceSansBold
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = Frame
 
--- Status labels
-local sandLabel = Instance.new("TextLabel")
-sandLabel.Size = UDim2.new(0, 240, 0, 24)
-sandLabel.Position = UDim2.new(0, 10, 0, 40)
-sandLabel.BackgroundTransparency = 0.5
-sandLabel.TextScaled = true
-sandLabel.TextColor3 = Color3.new(1, 1, 1)
-sandLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-sandLabel.BorderSizePixel = 0
-sandLabel.Text = "Sand: [Not set]"
-sandLabel.Parent = Frame
-
-local waterLabel = Instance.new("TextLabel")
-waterLabel.Size = UDim2.new(0, 240, 0, 24)
-waterLabel.Position = UDim2.new(0, 10, 0, 70)
-waterLabel.BackgroundTransparency = 0.5
-waterLabel.TextScaled = true
-waterLabel.TextColor3 = Color3.new(1, 1, 1)
-waterLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-waterLabel.BorderSizePixel = 0
-waterLabel.Text = "Water: [Not set]"
-waterLabel.Parent = Frame
-
-local autofarmStatus = Instance.new("TextLabel")
+local sandLabel = createLabel("SandLabel", "Sand: [Not set]", 40)
+local waterLabel = createLabel("WaterLabel", "Water: [Not set]", 70)
+local autofarmStatus = createLabel("AutoFarmStatus", "AutoFarm: OFF", 100, Color3.fromRGB(0,255,0))
 autofarmStatus.Size = UDim2.new(0, 240, 0, 22)
-autofarmStatus.Position = UDim2.new(0, 10, 0, 100)
-autofarmStatus.BackgroundTransparency = 0.5
-autofarmStatus.TextScaled = true
-autofarmStatus.TextColor3 = Color3.fromRGB(0, 255, 0)
 autofarmStatus.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-autofarmStatus.BorderSizePixel = 0
-autofarmStatus.Text = "AutoFarm: OFF"
-autofarmStatus.Parent = Frame
 
 -- AutoSell Section
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local shopFolder = remotesFolder:WaitForChild("Shop")
 local sellAllFunction = shopFolder:WaitForChild("SellAll")
 
 local autosellEnabled = false
-local autosellInterval = 30 -- ค่าเริ่มต้น 30 วินาที
+local autosellInterval = 30
 local autosellThread
 
--- UI สำหรับสถานะ AutoSell
-local autosellStatus = Instance.new("TextLabel")
+local autosellStatus = createLabel("AutoSellStatus", "AutoSell: OFF", 310, Color3.fromRGB(0,200,255))
 autosellStatus.Size = UDim2.new(0, 240, 0, 22)
-autosellStatus.Position = UDim2.new(0, 10, 0, 310)
-autosellStatus.BackgroundTransparency = 0.5
-autosellStatus.TextScaled = true
-autosellStatus.TextColor3 = Color3.fromRGB(0, 200, 255)
 autosellStatus.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-autosellStatus.BorderSizePixel = 0
-autosellStatus.Text = "AutoSell: OFF"
-autosellStatus.Parent = Frame
 
 -- Saved positions
-local sandPos = nil
-local waterPos = nil
+local sandPos, waterPos
 
 -- Helper: teleport safely
 local function teleportTo(position)
     if not position then return end
-    if rootPart then
-        -- Direct set (could be replaced with tween if needed)
+    if rootPart and rootPart.Parent then
         rootPart.CFrame = CFrame.new(position)
     end
 end
@@ -168,9 +141,18 @@ local function setAutoFarmStatus(enabled)
     end
 end
 
+local function stopAutoFarm()
+    autofarmEnabled = false
+    if autofarmThread then
+        autofarmThread:Disconnect()
+        autofarmThread = nil
+    end
+    setAutoFarmStatus(false)
+end
+
 local function toggleAutoFarm()
     if autofarmEnabled then
-        setAutoFarmStatus(false)
+        stopAutoFarm()
         return
     end
     if not sandPos or not waterPos then
@@ -178,38 +160,32 @@ local function toggleAutoFarm()
         return
     end
     setAutoFarmStatus(true)
-    autofarmThread = task.spawn(function()
-        while autofarmEnabled do
-            -- Teleport to sand
-            if sandPos then
-                teleportTo(sandPos)
-                task.wait(1) -- ปรับได้ตามต้องการ
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-                task.wait(0.5)
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                task.wait(2)
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-                task.wait(0.5)
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-            end
-
+    autofarmThread = RunService.Heartbeat:Connect(function()
+        if not autofarmEnabled then return end
+        -- Teleport to sand
+        if sandPos then
+            teleportTo(sandPos)
+            task.wait(1)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait(0.5)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
             task.wait(2)
-
-            -- Teleport ไป water หลายรอบ (เลียนแบบเดิม)
-            if waterPos then
-                teleportTo(waterPos)
-                task.wait(1) -- ปรับได้ตามต้องการ
-                for i = 1, 30 do
-                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-                    task.wait(0.2)
-                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                end
-            end
-
-            -- รอบถัดไป
-            task.wait(2)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait(0.5)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
         end
-        setAutoFarmStatus(false)
+        task.wait(2)
+        -- Teleport ไป water หลายรอบ
+        if waterPos then
+            teleportTo(waterPos)
+            task.wait(1)
+            for i = 1, 30 do
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                task.wait(0.2)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            end
+        end
+        task.wait(2)
     end)
 end
 
@@ -235,7 +211,6 @@ local function toggleUI()
     openButton.Visible = not uiVisible
 end
 
--- Close button (X)
 local closeButton = Instance.new("TextButton")
 closeButton.Name = "CloseButton"
 closeButton.Size = UDim2.new(0, 30, 0, 30)
@@ -247,14 +222,10 @@ closeButton.BorderSizePixel = 0
 closeButton.Parent = Frame
 closeButton.AutoButtonColor = true
 closeButton.MouseButton1Click:Connect(toggleUI)
-
 openButton.MouseButton1Click:Connect(toggleUI)
 
--- Dragging support (optional, simple)
-local dragging = false
-local dragStart = nil
-local startPos = nil
-
+-- Dragging support
+local dragging, dragStart, startPos = false, nil, nil
 Frame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         dragging = true
@@ -267,7 +238,6 @@ Frame.InputBegan:Connect(function(input)
         end)
     end
 end)
-
 Frame.InputChanged:Connect(function(input)
     if dragging and dragStart and startPos and input.UserInputType == Enum.UserInputType.MouseMovement then
         local delta = input.Position - dragStart
@@ -276,6 +246,16 @@ Frame.InputChanged:Connect(function(input)
 end)
 
 -- AutoSell logic
+local function stopAutoSell()
+    autosellEnabled = false
+    if autosellThread then
+        task.cancel(autosellThread)
+        autosellThread = nil
+    end
+    autosellStatus.Text = "AutoSell: OFF"
+    autosellStatus.TextColor3 = Color3.fromRGB(100, 100, 100)
+end
+
 local function setAutoSellStatus(enabled)
     autosellEnabled = enabled
     if enabled then
@@ -289,13 +269,12 @@ end
 
 local function toggleAutoSell()
     if autosellEnabled then
-        setAutoSellStatus(false)
+        stopAutoSell()
         return
     end
     setAutoSellStatus(true)
     autosellThread = task.spawn(function()
         while autosellEnabled do
-            -- เรียกฟังก์ชั่นขายของ
             pcall(function()
                 sellAllFunction:InvokeServer()
             end)
@@ -322,7 +301,7 @@ intervalBox.BorderSizePixel = 0
 intervalBox.TextScaled = true
 intervalBox.Parent = Frame
 
-intervalBox.FocusLost:Connect(function(enter)
+intervalBox.FocusLost:Connect(function()
     local val = tonumber(intervalBox.Text)
     if val and val >= 5 then
         autosellInterval = math.floor(val)
