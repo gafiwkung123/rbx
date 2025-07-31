@@ -82,6 +82,28 @@ autofarmStatus.BorderSizePixel = 0
 autofarmStatus.Text = "AutoFarm: OFF"
 autofarmStatus.Parent = Frame
 
+-- AutoSell Section
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
+local shopFolder = remotesFolder:WaitForChild("Shop")
+local sellAllFunction = shopFolder:WaitForChild("SellAll")
+
+local autosellEnabled = false
+local autosellInterval = 30 -- ค่าเริ่มต้น 30 วินาที
+local autosellThread
+
+-- UI สำหรับสถานะ AutoSell
+local autosellStatus = Instance.new("TextLabel")
+autosellStatus.Size = UDim2.new(0, 240, 0, 22)
+autosellStatus.Position = UDim2.new(0, 10, 0, 310)
+autosellStatus.BackgroundTransparency = 0.5
+autosellStatus.TextScaled = true
+autosellStatus.TextColor3 = Color3.fromRGB(0, 200, 255)
+autosellStatus.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+autosellStatus.BorderSizePixel = 0
+autosellStatus.Text = "AutoSell: OFF"
+autosellStatus.Parent = Frame
+
 -- Saved positions
 local sandPos = nil
 local waterPos = nil
@@ -131,23 +153,6 @@ createButton("SaveWaterBtn", "Save Water Position", 165, function()
     end
 end)
 
--- Teleport buttons
-createButton("TeleportSandBtn", "Teleport to Sand", 200, function()
-    if sandPos then
-        teleportTo(sandPos)
-    else
-        warn("Sand position not set.")
-    end
-end)
-
-createButton("TeleportWaterBtn", "Teleport to Water", 235, function()
-    if waterPos then
-        teleportTo(waterPos)
-    else
-        warn("Water position not set.")
-    end
-end)
-
 -- AutoFarm logic
 local autofarmEnabled = false
 local autofarmThread
@@ -188,7 +193,7 @@ local function toggleAutoFarm()
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
             end
 
-            task.wait(3)
+            task.wait(2)
 
             -- Teleport ไป water หลายรอบ (เลียนแบบเดิม)
             if waterPos then
@@ -202,7 +207,7 @@ local function toggleAutoFarm()
             end
 
             -- รอบถัดไป
-            task.wait(5)
+            task.wait(2)
         end
         setAutoFarmStatus(false)
     end)
@@ -267,5 +272,64 @@ Frame.InputChanged:Connect(function(input)
     if dragging and dragStart and startPos and input.UserInputType == Enum.UserInputType.MouseMovement then
         local delta = input.Position - dragStart
         Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- AutoSell logic
+local function setAutoSellStatus(enabled)
+    autosellEnabled = enabled
+    if enabled then
+        autosellStatus.Text = "AutoSell: ON ("..tostring(autosellInterval).."s)"
+        autosellStatus.TextColor3 = Color3.fromRGB(0, 200, 255)
+    else
+        autosellStatus.Text = "AutoSell: OFF"
+        autosellStatus.TextColor3 = Color3.fromRGB(100, 100, 100)
+    end
+end
+
+local function toggleAutoSell()
+    if autosellEnabled then
+        setAutoSellStatus(false)
+        return
+    end
+    setAutoSellStatus(true)
+    autosellThread = task.spawn(function()
+        while autosellEnabled do
+            -- เรียกฟังก์ชั่นขายของ
+            pcall(function()
+                sellAllFunction:InvokeServer()
+            end)
+            for i = 1, autosellInterval do
+                if not autosellEnabled then break end
+                task.wait(1)
+            end
+        end
+        setAutoSellStatus(false)
+    end)
+end
+
+createButton("SellButton", "Toggle AutoSell", 340, toggleAutoSell)
+
+-- ช่องกรอกเวลาขาย (วินาที)
+local intervalBox = Instance.new("TextBox")
+intervalBox.Name = "IntervalBox"
+intervalBox.Size = UDim2.new(0, 100, 0, 24)
+intervalBox.Position = UDim2.new(0, 150, 0, 310)
+intervalBox.Text = tostring(autosellInterval)
+intervalBox.TextColor3 = Color3.new(1, 1, 1)
+intervalBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+intervalBox.BorderSizePixel = 0
+intervalBox.TextScaled = true
+intervalBox.Parent = Frame
+
+intervalBox.FocusLost:Connect(function(enter)
+    local val = tonumber(intervalBox.Text)
+    if val and val >= 5 then
+        autosellInterval = math.floor(val)
+        if autosellEnabled then
+            autosellStatus.Text = "AutoSell: ON ("..tostring(autosellInterval).."s)"
+        end
+    else
+        intervalBox.Text = tostring(autosellInterval)
     end
 end)
